@@ -7,12 +7,7 @@ import org.lwjgl.glfw.GLFWCursorPosCallback;
 import org.lwjgl.glfw.GLFWKeyCallback;
 import org.lwjgl.glfw.GLFWMouseButtonCallback;
 import org.lwjgl.glfw.GLFWScrollCallback;
-import transforms.Mat4;
-import transforms.Mat4RotZ;
-import transforms.Camera;
-import transforms.Mat4PerspRH;
-import transforms.Vec2D;
-import transforms.Vec3D;
+import transforms.*;
 
 import java.io.IOException;
 
@@ -24,11 +19,24 @@ import static org.lwjgl.opengl.GL20.*;
 
 
 public class Renderer extends AbstractRenderer {
+    /*
+    teorie:
+    zobrazovací řetězec
+    vertex shader, fragment shader - co to je, k čemu to je (jaký má každý shader vlastnosti), jak to funguje
+    phongův osvětlovací model
+
+    praxe:
+    umět napsat vertex a fragment shader
+    rozumět všemu v Rendereru
+     */
+
     private OGLBuffers buffers;
     private int shaderProgram;
     private OGLBuffers axisBuffers;
     private int axisShaderProgram;
     private OGLTexture2D texture;
+    private OGLBuffers sqrBuffers;
+    private int sqrShaderProgram;
 
     private float rotZ = 0;
 
@@ -43,33 +51,44 @@ public class Renderer extends AbstractRenderer {
     public void init() {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 
+        Vec3D observerPosition = new Vec3D(3, 3, 3);
+        camera = new Camera()
+                .withPosition(observerPosition)
+                .withAzimuth(azimuthToOrigin(observerPosition))
+                .withZenith(zenithToOrigin(observerPosition))
+                .withFirstPerson(true);
+
         // Textures
         try {
-            texture = new OGLTexture2D("./textures/wood.png");
+            texture = new OGLTexture2D("./textures/poppy.png");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
 
         // trojúhelník
         float[] vb = {
-        // 1. vrchol
-           0f,  1f, 1,     1, 0, 0,     0.5f, 1,
-        // 2. vrchol
-          -1f,  0f, 1,     0, 1, 0,     0, 0.5f,
-        // 3. vrchol
-           1f, -1f, 1,     0, 0, 1,     1, 0
+                -1, -1, 0,      1, 0, 0,    0, 0, 1,
+                1, -1, 0,       0, 1, 0,    0, 0, 1,
+                1, 1, 0,        0, 0, 1,    0, 0, 1,
+                -1, 1, 0,       0, 1, 0,    0, 0, 1,
         };
 
-        int[] ib = {0, 1, 2};
+        int[] ib = {
+                0, 1, 2,
+                3, 0, 2
+        };
 
         OGLBuffers.Attrib[] attribs = {
-          new OGLBuffers.Attrib("inPosition", 3),
-          new OGLBuffers.Attrib("inColor", 3),
-          new OGLBuffers.Attrib("inTexCoord", 2)
+                new OGLBuffers.Attrib("inPosition", 3),
+                new OGLBuffers.Attrib("inColor", 3),
+//                new OGLBuffers.Attrib("inTexCoord", 2),
+                new OGLBuffers.Attrib("inNormal", 3)
         };
 
         buffers = new OGLBuffers(vb, attribs, ib);
         shaderProgram = ShaderUtils.loadProgram("/triangle");
+        glUseProgram(shaderProgram);
+        texture.bind(shaderProgram, "texturePoppy");
 
 
         // osy
@@ -95,16 +114,7 @@ public class Renderer extends AbstractRenderer {
         axisBuffers = new OGLBuffers(axisVb, axisAttribs, axisIb);
         axisShaderProgram = ShaderUtils.loadProgram("/axis");
 
-        glUseProgram(shaderProgram);
-        texture.bind(shaderProgram, "textureWood");
-
         glEnable(GL_DEPTH_TEST);
-
-        Vec3D observerPosition = new Vec3D(3, 3, 3);
-        camera = new Camera()
-                .withPosition(observerPosition)
-                .withAzimuth(azimuthToOrigin(observerPosition))
-                .withZenith(zenithToOrigin(observerPosition));
     }
 
     public void display() {
@@ -118,15 +128,13 @@ public class Renderer extends AbstractRenderer {
 
         glUseProgram(shaderProgram);
 
-        rotZ += 0.0001f;
-
         projection = new Mat4PerspRH(Math.PI / 3, (double) height / width, 0.1, 100);
 
         int locUModel = glGetUniformLocation(shaderProgram, "uModel");
         int locUView  = glGetUniformLocation(shaderProgram, "uView");
         int locUProj  = glGetUniformLocation(shaderProgram, "uProj");
 
-        Mat4 model = new Mat4RotZ(Math.toDegrees(rotZ));
+        Mat4 model = new Mat4Identity();
         glUniformMatrix4fv(locUModel, false, model.floatArray());
         glUniformMatrix4fv(locUView, false, camera.getViewMatrix().floatArray());
         glUniformMatrix4fv(locUProj, false, projection.floatArray());
