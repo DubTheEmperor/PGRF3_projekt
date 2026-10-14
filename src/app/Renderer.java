@@ -35,10 +35,6 @@ public class Renderer extends AbstractRenderer {
     private OGLBuffers axisBuffers;
     private int axisShaderProgram;
     private OGLTexture2D texture;
-    private OGLBuffers sqrBuffers;
-    private int sqrShaderProgram;
-
-    private float rotZ = 0;
 
     private Camera camera;
     private Mat4 projection;

@@ -2,31 +2,37 @@
 
 in vec3 vertColor;
 in vec3 vertPosition;
-in vec2 vertTexCoord;
+//in vec2 vertTexCoord;
 in vec3 vertNormal;
 in vec3 lightDirection;
-
-uniform vec3 uColor;
-uniform sampler2D texturePoppy;
+in vec3 viewDirection;
 
 out vec4 outColor;
 
 void main() {
-//    outColor = vec4(vertTexCoord, 0, 1.0);
-//    outColor = texture(texturePoppy, vertTexCoord);
     vec3 baseColor = vec3(0.5, 0.5, 0.5);
-
-    vec3 ambientColor = vec3(0.9, 0.9, 0.9);
+    vec3 ambientColor = vec3(0.2, 0.2, 0.2);
     vec3 diffuseColor = vec3(1, 0, 0);
+    vec3 specularColor = vec3(1.0);
+    float shininess = 60.0;
 
+    vec3 N = normalize(vertNormal);
+    vec3 L = normalize(lightDirection);
+    vec3 V = normalize(viewDirection);
+    vec3 R = reflect(-L, N);
 
-    vec3 ld = normalize(lightDirection);
-    vec3 nd = normalize(vertNormal);
-    vec3 vd;
+    float nDotL = max(dot(N, L), 0.0);  // diffuse
+    float vDotR = max(dot(V, R), 0.0);  // specular
+    float spec = 0.0;
 
-    float nDotL = max(dot(nd, ld), 0);
-    float nDotV;
+    if(nDotL > 0.0)
+        spec = pow(vDotR, shininess);
 
+    vec3 totalAmbient  = ambientColor * baseColor;
+    vec3 totalDiffuse  = diffuseColor * nDotL * baseColor;
+    vec3 totalSpecular = specularColor * spec;
 
-    outColor = vec4(baseColor * (ambientColor + (diffuseColor * nDotL)), 1);
+    vec3 color = totalAmbient + totalDiffuse + totalSpecular;
+
+    outColor = vec4(color, 1.0);
 }
