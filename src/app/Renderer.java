@@ -124,13 +124,13 @@ public class Renderer extends AbstractRenderer {
 
         glUseProgram(shaderProgram);
 
-        projection = new Mat4PerspRH(Math.PI / 3, (double) height / width, 0.1, 100);
-
         int locUModel = glGetUniformLocation(shaderProgram, "uModel");
         int locUView  = glGetUniformLocation(shaderProgram, "uView");
         int locUProj  = glGetUniformLocation(shaderProgram, "uProj");
 
+        projection = new Mat4PerspRH(Math.PI / 3, (double) height / width, 0.1, 100);
         Mat4 model = new Mat4Identity();
+
         glUniformMatrix4fv(locUModel, false, model.floatArray());
         glUniformMatrix4fv(locUView, false, camera.getViewMatrix().floatArray());
         glUniformMatrix4fv(locUProj, false, projection.floatArray());

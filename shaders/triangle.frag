@@ -14,7 +14,7 @@ void main() {
     vec3 ambientColor = vec3(0.2, 0.2, 0.2);
     vec3 diffuseColor = vec3(1, 0, 0);
     vec3 specularColor = vec3(1.0);
-    float shininess = 60.0;
+    float shininess = 50.0;
 
     vec3 N = normalize(vertNormal);
     vec3 L = normalize(lightDirection);
@@ -29,7 +29,7 @@ void main() {
         spec = pow(vDotR, shininess);
 
     vec3 totalAmbient  = ambientColor * baseColor;
-    vec3 totalDiffuse  = diffuseColor * nDotL * baseColor;
+    vec3 totalDiffuse  = diffuseColor * baseColor * nDotL;
     vec3 totalSpecular = specularColor * spec;
 
     vec3 color = totalAmbient + totalDiffuse + totalSpecular;
