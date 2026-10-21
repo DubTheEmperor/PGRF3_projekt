@@ -2,21 +2,28 @@
 
 in vec3 vertColor;
 in vec3 vertPosition;
-//in vec2 vertTexCoord;
+in vec2 vertTexCoord;
 in vec3 vertNormal;
 in vec3 lightDirection;
 in vec3 viewDirection;
 
+uniform mat4 uModel;
+uniform sampler2D textureColor;
+uniform sampler2D textureNormal;
+
 out vec4 outColor;
 
 void main() {
-    vec3 baseColor = vec3(0.5, 0.5, 0.5);
-    vec3 ambientColor = vec3(0.2, 0.2, 0.2);
-    vec3 diffuseColor = vec3(1, 0, 0);
-    vec3 specularColor = vec3(1.0);
+//    vec3 baseColor = vec3(0.5, 0.5, 0.5);
+    vec3 baseColor = texture(textureColor, vertTexCoord).rgb;
+    vec3 normal = texture(textureNormal, vertTexCoord).rgb;
+
+    vec3 ambientColor = vec3(0.5, 0.5, 0.5);
+    vec3 diffuseColor = vec3(1, 1, 1);
+    vec3 specularColor = vec3(0.7);
     float shininess = 50.0;
 
-    vec3 N = normalize(vertNormal);
+    vec3 N = normalize(transpose(inverse(mat3(uModel))) * (normal * 2 - 1));
     vec3 L = normalize(lightDirection);
     vec3 V = normalize(viewDirection);
     vec3 R = reflect(-L, N);

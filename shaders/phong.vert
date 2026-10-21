@@ -2,7 +2,7 @@
 
 in vec3 inColor;
 in vec3 inPosition;
-//in vec2 inTexCoord;
+in vec2 inTexCoord;
 in vec3 inNormal;
 
 uniform mat4 uModel;
@@ -11,7 +11,7 @@ uniform mat4 uProj;
 
 out vec3 vertColor;
 out vec3 vertPosition;
-//out vec2 vertTexCoord;
+out vec2 vertTexCoord;
 out vec3 vertNormal;
 out vec3 lightDirection;
 out vec3 viewDirection;
@@ -19,7 +19,7 @@ out vec3 viewDirection;
 void main() {
     vertColor = inColor;
     vertPosition = inPosition;
-//    vertTexCoord = inTexCoord;
+    vertTexCoord = inTexCoord;
 
     mat4 matMV = uView * uModel;
     vec4 objectPosition = matMV * vec4(inPosition, 1.0);
