@@ -1,5 +1,8 @@
 package app;
 
+import app.objLoader.ObjLoader;
+import app.object.Axis;
+import app.object.Floor;
 import lwjglutils.OGLBuffers;
 import lwjglutils.OGLTexture2D;
 import lwjglutils.ShaderUtils;
@@ -19,21 +22,8 @@ import static org.lwjgl.opengl.GL20.*;
 
 
 public class Renderer extends AbstractRenderer {
-    /*
-    teorie:
-    zobrazovací řetězec
-    vertex shader, fragment shader - co to je, k čemu to je (jaký má každý shader vlastnosti), jak to funguje
-    phongův osvětlovací model
-
-    praxe:
-    umět napsat vertex a fragment shader
-    rozumět všemu v Rendereru
-     */
-
-    private OGLBuffers buffers;
-    private int shaderProgram;
-    private OGLBuffers axisBuffers;
-    private int axisShaderProgram;
+    private OGLBuffers buffersAxis, buffersFloor, buffersDragon;
+    private int shaderProgramPhong, shaderProgramAxis;
     private OGLTexture2D texture;
 
     private Camera camera;
@@ -46,71 +36,39 @@ public class Renderer extends AbstractRenderer {
 
     public void init() {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glEnable(GL_DEPTH_TEST);
 
-        Vec3D observerPosition = new Vec3D(3, 3, 3);
-        camera = new Camera()
-                .withPosition(observerPosition)
-                .withAzimuth(azimuthToOrigin(observerPosition))
-                .withZenith(zenithToOrigin(observerPosition))
-                .withFirstPerson(true);
+        // ========  Kamera a projekce ========
+        {
+            Vec3D observerPosition = new Vec3D(3, 3, 3);
+            camera = new Camera()
+                    .withPosition(observerPosition)
+                    .withAzimuth(azimuthToOrigin(observerPosition))
+                    .withZenith(zenithToOrigin(observerPosition))
+                    .withFirstPerson(true);
+            projection = new Mat4PerspRH(Math.toRadians(45), height / (double) width, 0.1f, 100f);
+        }
 
-        // Textures
+        // ======== Textury ========
         try {
-            texture = new OGLTexture2D("./textures/poppy.png");
+            texture = new OGLTexture2D("textures/wood.png");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
 
-        // trojúhelník
-        float[] vb = {
-                -1, -1, 0,      1, 0, 0,    0, 0, 1,
-                1, -1, 0,       0, 1, 0,    0, 0, 1,
-                1, 1, 0,        0, 0, 1,    0, 0, 1,
-                -1, 1, 0,       0, 1, 0,    0, 0, 1,
-        };
+        // ======== Scene objects ========
+        buffersAxis = new Axis().getBuffers();
+        buffersFloor = new Floor().getBuffers();
+        buffersDragon = ObjLoader.load("obj/dragon.obj");
 
-        int[] ib = {
-                0, 1, 2,
-                3, 0, 2
-        };
+        // ======== Shaderové programy ========
+        shaderProgramPhong = ShaderUtils.loadProgram("/phong");
+        shaderProgramAxis = ShaderUtils.loadProgram("/axis");
 
-        OGLBuffers.Attrib[] attribs = {
-                new OGLBuffers.Attrib("inPosition", 3),
-                new OGLBuffers.Attrib("inColor", 3),
-//                new OGLBuffers.Attrib("inTexCoord", 2),
-                new OGLBuffers.Attrib("inNormal", 3)
-        };
-
-        buffers = new OGLBuffers(vb, attribs, ib);
-        shaderProgram = ShaderUtils.loadProgram("/triangle");
-        glUseProgram(shaderProgram);
-        texture.bind(shaderProgram, "texturePoppy");
-
-
-        // osy
-        float axisLength = 5f;
-        float[] axisVb = {
-                // osa X - červená
-                0f, 0f, 0f,           1, 0, 0,
-                axisLength, 0f, 0f,   1, 0, 0,
-                // osa Y - zelená
-                0f, 0f, 0f,           0, 1, 0,
-                0f, axisLength, 0f,   0, 1, 0,
-                // osa Z - modrá
-                0f, 0f, 0f,           0, 0, 1,
-                0f, 0f, axisLength,   0, 0, 1
-        };
-        int[] axisIb = {0, 1, 2, 3, 4, 5};
-
-        OGLBuffers.Attrib[] axisAttribs = {
-                new OGLBuffers.Attrib("inPosition", 3),
-                new OGLBuffers.Attrib("inColor", 3)
-        };
-
-        axisBuffers = new OGLBuffers(axisVb, axisAttribs, axisIb);
-        axisShaderProgram = ShaderUtils.loadProgram("/axis");
-
-        glEnable(GL_DEPTH_TEST);
+        // Tady říkáme, že chceme použít konkrétní shaderový program
+        //glUseProgram(shaderProgram);
+        // Textury je nutné bindovat
+        //texture.bind(shaderProgram, "textureWood");
     }
 
     public void display() {
@@ -122,33 +80,43 @@ public class Renderer extends AbstractRenderer {
         glViewport(0, 0, width, height);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(shaderProgram);
+        // ======== Render Axis ========
+        {
+            glUseProgram(shaderProgramAxis);
+            setGlobalUniforms(shaderProgramAxis);
+            buffersAxis.draw(GL_LINES, shaderProgramAxis);
+        }
 
-        int locUModel = glGetUniformLocation(shaderProgram, "uModel");
-        int locUView  = glGetUniformLocation(shaderProgram, "uView");
-        int locUProj  = glGetUniformLocation(shaderProgram, "uProj");
+        // ======== Render Floor ========
+        {
+            glUseProgram(shaderProgramPhong);
+            setGlobalUniforms(shaderProgramPhong);
+            int locUModel = glGetUniformLocation(shaderProgramPhong, "uModel");
+            glUniformMatrix4fv(locUModel, false, new Mat4Identity().floatArray());
+            buffersFloor.draw(GL_TRIANGLES, shaderProgramPhong);
+        }
 
-        projection = new Mat4PerspRH(Math.PI / 3, (double) height / width, 0.1, 100);
-        Mat4 model = new Mat4Identity();
-
-        glUniformMatrix4fv(locUModel, false, model.floatArray());
-        glUniformMatrix4fv(locUView, false, camera.getViewMatrix().floatArray());
-        glUniformMatrix4fv(locUProj, false, projection.floatArray());
-
-        // vykreslit
-        buffers.draw(GL_TRIANGLES, shaderProgram);
-
-        // osy
-        glUseProgram(axisShaderProgram);
-
-        glUniformMatrix4fv(glGetUniformLocation(axisShaderProgram, "uView"),
-                false, camera.getViewMatrix().floatArray());
-        glUniformMatrix4fv(glGetUniformLocation(axisShaderProgram, "uProj"),
-                false, projection.floatArray());
-
-        axisBuffers.draw(GL_LINES, axisShaderProgram);
+        // ======== Render Dragon ========
+        {
+            glUseProgram(shaderProgramPhong);
+            setGlobalUniforms(shaderProgramPhong);
+            int locUModel = glGetUniformLocation(shaderProgramPhong, "uModel");
+            glUniformMatrix4fv(locUModel, false, new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0)).floatArray());
+            buffersDragon.draw(GL_TRIANGLES, shaderProgramPhong);
+        }
     }
 
+    private void setGlobalUniforms(int shaderProgram) {
+        // View matice - posíláme do shaderu jako uniform
+        int locUView = glGetUniformLocation(shaderProgram, "uView");
+        glUniformMatrix4fv(locUView, false, camera.getViewMatrix().floatArray());
+
+        // Proj matice - posíláme do shaderu jako uniform
+        int locUProj = glGetUniformLocation(shaderProgram, "uProj");
+        glUniformMatrix4fv(locUProj, false, projection.floatArray());
+    }
+
+    // ====== Callbacks ======
     protected GLFWKeyCallback keyCallback = new GLFWKeyCallback() {
         @Override
         public void invoke(long window, int key, int scancode, int action, int mods) {
@@ -216,6 +184,7 @@ public class Renderer extends AbstractRenderer {
         return scrollCallback;
     }
 
+    // ====== Kamera metody ======
     private double azimuthToOrigin(Vec3D observerPosition) {
         return observerPosition
                 .opposite()
