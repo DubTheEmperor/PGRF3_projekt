@@ -2,6 +2,8 @@ package app.object;
 
 import lwjglutils.OGLBuffers;
 import transforms.Mat4;
+import transforms.Point3D;
+import transforms.Vec3D;
 
 /**
  * Objekt scény, který jde vybrat: název, geometrie a modelová transformace.
@@ -49,6 +51,11 @@ public class SceneEntity {
 
     public boolean isNormalMapped() {
         return normalMapped;
+    }
+
+    /** Lokální počátek objektu po modelové transformaci (střed orbity kamery, pozice světla). */
+    public Vec3D getCenter() {
+        return new Point3D().mul(model).ignoreW();
     }
 
     public Mat4 getModel() {

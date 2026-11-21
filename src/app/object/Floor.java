@@ -4,12 +4,12 @@ import lwjglutils.OGLBuffers;
 
 public class Floor extends SceneObject {
     public Floor() {
-        // vb
+        // vb: pozice, barva, UV, normála, tečna (U = lokální X, w = +1)
         float[] vb = {
-                -1f, -1f, -0.1f,    1, 0, 0,     0, 0,      0, 0, 1,
-                1f, -1f, -0.1f,     0, 1, 0,     1, 0,      0, 0, 1,
-                1f, 1f, -0.1f,      0, 0, 1,     1, 1,      0, 0, 1,
-                -1f, 1f, -0.1f,     0, 1, 0,     0, 1,      0, 0, 1,
+                -1f, -1f, -0.1f,    1, 0, 0,     0, 0,      0, 0, 1,    1, 0, 0, 1,
+                1f, -1f, -0.1f,     0, 1, 0,     1, 0,      0, 0, 1,    1, 0, 0, 1,
+                1f, 1f, -0.1f,      0, 0, 1,     1, 1,      0, 0, 1,    1, 0, 0, 1,
+                -1f, 1f, -0.1f,     0, 1, 0,     0, 1,      0, 0, 1,    1, 0, 0, 1,
         };
 
         // ib
@@ -23,7 +23,8 @@ public class Floor extends SceneObject {
                 new OGLBuffers.Attrib("inPosition", 3),
                 new OGLBuffers.Attrib("inColor", 3),
                 new OGLBuffers.Attrib("inTexCoord", 2),
-                new OGLBuffers.Attrib("inNormal", 3)
+                new OGLBuffers.Attrib("inNormal", 3),
+                new OGLBuffers.Attrib("inTangent", 4)
         };
 
         // dát do dohromady

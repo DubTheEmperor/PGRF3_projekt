@@ -4,11 +4,10 @@ in vec3 vertColor;
 in vec3 vertPosition;
 in vec2 vertTexCoord;
 in vec3 vertNormal;
+in mat3 vertTBN;
 in vec3 lightDirection;
 in vec3 viewDirection;
 
-uniform mat4 uModel;
-uniform mat4 uView;
 uniform sampler2D textureColor;
 uniform sampler2D textureNormal;
 uniform bool uUseNormalMap;
@@ -26,10 +25,9 @@ vec3 getNormal() {
     if (!uUseNormalMap)
         return normalize(vertNormal);
 
-    // DOČASNÉ: platí jen pro rovinu s tečnou = lokální X a bitangentou = lokální Y (Floor).
-    // Obecný normal mapping s TBN maticí nahradí tuto větev (bod 13).
+    // Normal mapping: normála z mapy je v tangent space, TBN ji převede do view space
     vec3 normalTangent = texture(textureNormal, vertTexCoord).rgb * 2.0 - 1.0;
-    return normalize(transpose(inverse(mat3(uView * uModel))) * normalTangent);
+    return normalize(vertTBN * normalTangent);
 }
 
 void main() {

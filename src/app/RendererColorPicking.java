@@ -20,6 +20,7 @@ import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.*;
@@ -74,9 +75,7 @@ public class RendererColorPicking extends AbstractRenderer {
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
     private OGLTexture2D textureColor, textureNormal;
 
-    private Camera camera;
-    private boolean mousePressed = false;
-    private double lastX, lastY;
+    private final CameraController cameraController = new CameraController();
     private Mat4PerspRH proj;
 
     private OGLRenderTarget renderTarget;
@@ -87,16 +86,8 @@ public class RendererColorPicking extends AbstractRenderer {
         viewer = new OGLTexture2D.Viewer();
         textRenderer = new OGLTextRenderer(width, height);
 
-        // ======== Kamera a projekce ========
-        {
-            camera = new Camera()
-                    .withPosition(new Vec3D(0, 0, 0))
-                    .withAzimuth(Math.toRadians(135))
-                    .withZenith(Math.toRadians(-45))
-                    .withRadius(5)
-                    .withFirstPerson(false);
-            proj = createProjection();
-        }
+        // ======== Projekce (kamera je v CameraController) ========
+        proj = createProjection();
 
         // ======== Textury ========
         try {
@@ -115,7 +106,7 @@ public class RendererColorPicking extends AbstractRenderer {
         entities.add(new SceneEntity("Dragon", ObjLoader.load("obj/dragon.obj"),
                 new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0))));
         entities.add(new SceneEntity("Cube", new Cube().getBuffers(),
-                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25))));
+                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25)), true));
         entities.add(new SceneEntity("Pyramid", new Pyramid().getBuffers(),
                 new Mat4Scale(0.6).mul(new Mat4Transl(0.8, -1.6, 0))));
         entities.add(new SceneEntity("Icosahedron", new Icosahedron().getBuffers(),
@@ -134,6 +125,9 @@ public class RendererColorPicking extends AbstractRenderer {
 
     public void display() {
         resizeRenderTargetIfNeeded();
+        cameraController.update(activeIndex == NO_SELECTION
+                ? Optional.empty()
+                : Optional.of(entities.get(activeIndex).getCenter()));
         glEnable(GL_DEPTH_TEST);
 
         // ======== 1. průchod: ID barvy do textury (color picking) ========
@@ -213,7 +207,7 @@ public class RendererColorPicking extends AbstractRenderer {
     private void setGlobalUniforms(int shaderProgram) {
         // View matice - posíláme do shaderu jako uniform
         int locUView = glGetUniformLocation(shaderProgram, "uView");
-        glUniformMatrix4fv(locUView, false, camera.getViewMatrix().floatArray());
+        glUniformMatrix4fv(locUView, false, cameraController.getViewMatrix().floatArray());
         // Proj matice - posíláme do shaderu jako uniform
         int locUProj = glGetUniformLocation(shaderProgram, "uProj");
         glUniformMatrix4fv(locUProj, false, proj.floatArray());
@@ -225,7 +219,7 @@ public class RendererColorPicking extends AbstractRenderer {
 
     // Pozice světla = počátek značky světla transformovaný její modelovou maticí
     private Vec3D getLightPosition() {
-        return new Point3D().mul(lightEntity.getModel()).ignoreW();
+        return lightEntity.getCenter();
     }
 
     // ====== Velikost okna ======
@@ -252,8 +246,15 @@ public class RendererColorPicking extends AbstractRenderer {
         return index < entities.size() ? index : NO_SELECTION;
     }
 
+    // Jediné místo změny výběru => zde se přepíná i režim kamery
     private void setActive(int index) {
+        if (index == activeIndex) return;
         activeIndex = index;
+
+        if (index == NO_SELECTION)
+            cameraController.release();     // volná kamera (rozhlížení kolem sebe)
+        else
+            cameraController.focusOn(entities.get(index).getCenter());  // orbit kolem objektu
     }
 
     private void selectNext() {
@@ -310,10 +311,12 @@ public class RendererColorPicking extends AbstractRenderer {
         return indexFromPickingId(pickingId);
     }
 
-    // ====== Callbacks ======
+    // ====== Callbacks (kamera je v CameraController, sem se jen přeposílá) ======
     private GLFWKeyCallback keyCallback = new GLFWKeyCallback() {
         @Override
         public void invoke(long window, int key, int scancode, int action, int mods) {
+            cameraController.onKey(key, action);
+
             if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE) {
                 glfwSetWindowShouldClose(window, true);
             }
@@ -344,10 +347,7 @@ public class RendererColorPicking extends AbstractRenderer {
     private GLFWMouseButtonCallback mbCallback = new GLFWMouseButtonCallback() {
         @Override
         public void invoke(long window, int button, int action, int mods) {
-            // Levé tlačítko: rozhlížení kamerou
-            if (button == GLFW_MOUSE_BUTTON_LEFT) {
-                mousePressed = action == GLFW_PRESS;
-            }
+            cameraController.onMouseButton(button, action);   // levé tlačítko: orbit kamery
 
             // Pravé tlačítko (stisk): výběr aktivního objektu color pickingem
             if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
@@ -362,19 +362,14 @@ public class RendererColorPicking extends AbstractRenderer {
     private GLFWCursorPosCallback cpCallbacknew = new GLFWCursorPosCallback() {
         @Override
         public void invoke(long window, double x, double y) {
-            if (mousePressed) {
-                camera = camera.addAzimuth(Math.toRadians(lastX - x) * 0.3);
-                camera = camera.addZenith(Math.toRadians(lastY - y) * 0.3);
-            }
-            lastX = x;
-            lastY = y;
+            cameraController.onCursorPos(x, y);
         }
     };
 
     private GLFWScrollCallback scrollCallback = new GLFWScrollCallback() {
         @Override
         public void invoke(long window, double dx, double dy) {
-            camera = camera.mulRadius(Math.pow(0.8, dy));
+            cameraController.onScroll(dy);
         }
     };
 
