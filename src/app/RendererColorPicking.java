@@ -40,9 +40,28 @@ public class RendererColorPicking extends AbstractRenderer {
     // Šedé pozadí obrazovky
     private static final float SCREEN_BACKGROUND = 0.1f;
 
+    // ======== Transformace aktivního objektu (krok na jeden stisk Q/E) ========
+    private static final double TRANSLATE_STEP = 0.1;
+    private static final double ROTATE_STEP = Math.toRadians(5);
+    private static final double SCALE_STEP = 0.1;
+
+    private enum TransformMode {
+        TRANSLATE("Posun"), ROTATE("Rotace"), SCALE("Scale");
+
+        private final String label;
+
+        TransformMode(String label) {
+            this.label = label;
+        }
+    }
+
     private OGLBuffers buffersAxis;
     private final List<SceneEntity> entities = new ArrayList<>();
     private int activeIndex = NO_SELECTION;
+
+    private TransformMode transformMode = TransformMode.TRANSLATE;
+    private Vec3D transformAxis = new Vec3D(1, 0, 0);
+    private String transformAxisName = "X";
 
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
     private OGLTexture2D textureColor, textureNormal;
@@ -122,9 +141,11 @@ public class RendererColorPicking extends AbstractRenderer {
         glDisable(GL_DEPTH_TEST);
         viewer.view(renderTarget.getColorTexture(), -1, -1, 0.5);
 
-        // ======== Text ========
+        // ======== Text UI ========
         String activeName = activeIndex == NO_SELECTION ? "žádný" : entities.get(activeIndex).getName();
         textRenderer.addStr2D(3, 20, "Aktivní objekt: " + activeName);
+        textRenderer.addStr2D(3, 40, "Osa: " + transformAxisName + " (1/2/3) | Režim: " + transformMode.label
+                + " (4/5/6) | Q/E: −/+ | Backspace: reset");
     }
 
     private void renderAxis() {
@@ -211,6 +232,31 @@ public class RendererColorPicking extends AbstractRenderer {
         setActive(activeIndex == NO_SELECTION ? n - 1 : (activeIndex - 1 + n) % n);
     }
 
+    // ====== Transformace aktivního objektu ======
+    private void setTransformAxis(Vec3D axis, String name) {
+        transformAxis = axis;
+        transformAxisName = name;
+    }
+
+    private void transformActive(int sign) {
+        if (activeIndex == NO_SELECTION) return;
+        SceneEntity entity = entities.get(activeIndex);
+        Mat4 model = entity.getModel();
+
+        switch (transformMode) {
+            case TRANSLATE -> model = model.mul(new Mat4Transl(transformAxis.mul(sign * TRANSLATE_STEP)));
+            case ROTATE -> model = new Mat4Rot(sign * ROTATE_STEP, transformAxis).mul(model);
+            case SCALE -> model = new Mat4Scale(new Vec3D(1, 1, 1).add(transformAxis.mul(sign * SCALE_STEP))).mul(model);
+        }
+
+        entity.setModel(model);
+    }
+
+    private void resetActive() {
+        if (activeIndex == NO_SELECTION) return;
+        entities.get(activeIndex).resetModel();
+    }
+
     // Přečte jeden pixel picking textury pod kurzorem a vrátí index objektu (nebo NO_SELECTION)
     private int pickEntityAt(double cursorX, double cursorY) {
         int x = (int) cursorX;
@@ -241,6 +287,20 @@ public class RendererColorPicking extends AbstractRenderer {
                 switch (key) {
                     case GLFW_KEY_RIGHT -> selectNext();
                     case GLFW_KEY_LEFT -> selectPrevious();
+                    case GLFW_KEY_1 -> setTransformAxis(new Vec3D(1, 0, 0), "X");
+                    case GLFW_KEY_2 -> setTransformAxis(new Vec3D(0, 1, 0), "Y");
+                    case GLFW_KEY_3 -> setTransformAxis(new Vec3D(0, 0, 1), "Z");
+                    case GLFW_KEY_4 -> transformMode = TransformMode.TRANSLATE;
+                    case GLFW_KEY_5 -> transformMode = TransformMode.ROTATE;
+                    case GLFW_KEY_6 -> transformMode = TransformMode.SCALE;
+                    case GLFW_KEY_BACKSPACE -> resetActive();
+                }
+            }
+
+            if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+                switch (key) {
+                    case GLFW_KEY_Q -> transformActive(-1);
+                    case GLFW_KEY_E -> transformActive(+1);
                 }
             }
         }

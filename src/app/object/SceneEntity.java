@@ -9,11 +9,13 @@ import transforms.Mat4;
 public class SceneEntity {
     private final String name;
     private final OGLBuffers buffers;
-    private final Mat4 model;
+    private final Mat4 initialModel;
+    private Mat4 model;
 
     public SceneEntity(String name, OGLBuffers buffers, Mat4 model) {
         this.name = name;
         this.buffers = buffers;
+        this.initialModel = model;
         this.model = model;
     }
 
@@ -27,5 +29,13 @@ public class SceneEntity {
 
     public Mat4 getModel() {
         return model;
+    }
+
+    public void setModel(Mat4 model) {
+        this.model = model;
+    }
+
+    public void resetModel() {
+        this.model = initialModel;
     }
 }
