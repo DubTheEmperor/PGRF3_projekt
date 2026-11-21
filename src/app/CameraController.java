@@ -17,10 +17,10 @@ import static org.lwjgl.glfw.GLFW.*;
  *   střed orbity sleduje objekt (update), WASD se ignoruje
  */
 public class CameraController {
-    private static final double MOVE_SPEED = 0.05;          // posun WASD za snímek
-    private static final double ROTATE_SENSITIVITY = 0.3;   // stupně na pixel
+    private static final double MOVE_SPEED = 0.025;          // posun WASD za snímek
+    private static final double ROTATE_SENSITIVITY = 0.2;   // stupně na pixel
     private static final double ZOOM_FACTOR = 0.8;          // orbit: násobek poloměru na jeden krok kolečka
-    private static final double SCROLL_STEP = 0.3;          // volná kamera: posun na jeden krok kolečka
+    private static final double SCROLL_STEP = 0.2;          // volná kamera: posun na jeden krok kolečka
     private static final double MIN_RADIUS = 0.1;
 
     private Camera camera;
