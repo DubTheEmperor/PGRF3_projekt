@@ -26,11 +26,15 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 
 public class RendererColorPicking extends AbstractRenderer {
     // ======== Picking ID (hodnota červeného kanálu 0–255) ========
+    private static final int ID_NONE = 0;   // pozadí picking textury (osy se do ní nekreslí)
     private static final int ID_FLOOR = 30;
     private static final int ID_DRAGON = 70;
     private static final int ID_CUBE = 110;
     private static final int ID_PYRAMID = 150;
     private static final int ID_ICOSAHEDRON = 190;
+
+    // Šedé pozadí obrazovky
+    private static final float SCREEN_BACKGROUND = 0.1f;
 
     private OGLBuffers buffersAxis, buffersFloor, buffersDragon, buffersCube, buffersPyramid, buffersIcosahedron;
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
@@ -45,8 +49,6 @@ public class RendererColorPicking extends AbstractRenderer {
     private OGLTexture2D.Viewer viewer;
 
     public void init() {
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-
         renderTarget = new OGLRenderTarget(width, height);
         viewer = new OGLTexture2D.Viewer();
 
@@ -91,6 +93,7 @@ public class RendererColorPicking extends AbstractRenderer {
         // TODO: shaderovým program, který obarvuje ID barvou
         renderTarget.bind();
         glViewport(0, 0, width, height);
+        glClearColor(ID_NONE / 255.0f, .0f, .0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderScene(shaderProgramColorPicking);
 
@@ -98,22 +101,23 @@ public class RendererColorPicking extends AbstractRenderer {
         // TODO: tady už renderuju phongem
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, width, height);
+        glClearColor(SCREEN_BACKGROUND, SCREEN_BACKGROUND, SCREEN_BACKGROUND, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderScene(shaderProgramPhong);
+        renderAxis(); // osy se vykreslí jen na obrazovku
 
         glDisable(GL_DEPTH_TEST);
         viewer.view(renderTarget.getColorTexture(), -1, -1, 0.5);
     }
 
-    private void renderScene(int shaderProgram) {
-        // ======== Render Axis ========
-        // TODO: axis nechceme renderovat do textury (nejdou myší vybrat)
-        {
-            glUseProgram(shaderProgramAxis);
-            setGlobalUniforms(shaderProgramAxis);
-            buffersAxis.draw(GL_LINES, shaderProgramAxis);
-        }
+    private void renderAxis() {
+        glUseProgram(shaderProgramAxis);
+        setGlobalUniforms(shaderProgramAxis);
+        buffersAxis.draw(GL_LINES, shaderProgramAxis);
+    }
 
+    // Kreslí jen objekty, které jde vybrat (používá se v picking i Phong průchodu)
+    private void renderScene(int shaderProgram) {
         // ======== Render objektů scény ========
         // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
         renderObject(shaderProgram, buffersFloor,
