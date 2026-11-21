@@ -33,6 +33,7 @@ public class RendererColorPicking extends AbstractRenderer {
     // ======== Picking ID (0–255) ========
     // ID je v červeném kanálu, u aktivního objektu v zeleném (zvýraznění v náhledu). Dekóduje se z R + G.
     // ID objektu = (index + 1) * ID_STEP => max. 255 / ID_STEP objektů (pro víc objektů zmenšit krok)
+    // Pozor: se 6 objekty (vč. světla) je limit vyčerpaný (6 * 40 = 240), další objekt => zmenšit ID_STEP
     private static final int ID_STEP = 40;
     private static final int ID_NONE = 0;   // pozadí picking textury (osy se do ní nekreslí)
     private static final int NO_SELECTION = -1;
@@ -40,8 +41,11 @@ public class RendererColorPicking extends AbstractRenderer {
     // Šedé pozadí obrazovky
     private static final float SCREEN_BACKGROUND = 0.1f;
 
-    // Pozice světla ve světových souřadnicích (strana výchozí kamery, nad scénou)
+    // ======== Světlo ========
+    // Výchozí pozice světla ve světových souřadnicích (strana výchozí kamery, nad scénou)
     private static final Vec3D LIGHT_POSITION = new Vec3D(-1.5, 1.5, 2.0);
+    private static final Vec3D LIGHT_COLOR = new Vec3D(1.0, 0.9, 0.2);     // barva značky světla
+    private static final double LIGHT_MARKER_SCALE = 0.1;
 
     // ======== Transformace aktivního objektu (krok na jeden stisk Q/E) ========
     private static final double TRANSLATE_STEP = 0.1;
@@ -60,6 +64,7 @@ public class RendererColorPicking extends AbstractRenderer {
 
     private OGLBuffers buffersAxis;
     private final List<SceneEntity> entities = new ArrayList<>();
+    private SceneEntity lightEntity;    // značka světla (je i v entities)
     private int activeIndex = NO_SELECTION;
 
     private TransformMode transformMode = TransformMode.TRANSLATE;
@@ -116,6 +121,11 @@ public class RendererColorPicking extends AbstractRenderer {
         entities.add(new SceneEntity("Icosahedron", new Icosahedron().getBuffers(),
                 new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30))));
 
+        // Světlo: pozice = počátek značky po modelové transformaci (getLightPosition)
+        lightEntity = SceneEntity.createLight("Light", new Icosahedron().getBuffers(),
+                new Mat4Scale(LIGHT_MARKER_SCALE).mul(new Mat4Transl(LIGHT_POSITION)));
+        entities.add(lightEntity);
+
         // ======== Shaderové programy ========
         shaderProgramPhong = ShaderUtils.loadProgram("/phong");
         shaderProgramAxis = ShaderUtils.loadProgram("/axis");
@@ -165,20 +175,29 @@ public class RendererColorPicking extends AbstractRenderer {
     }
 
     private void renderObject(int shaderProgram, SceneEntity entity, int pickingId, boolean active) {
-        glUseProgram(shaderProgram);
-        setGlobalUniforms(shaderProgram);
+        // Značka světla se na obrazovku kreslí bez osvětlení jednou barvou (program colorPicking kreslí uColor)
+        boolean unlit = entity.isLight() && shaderProgram == shaderProgramPhong;
+        int program = unlit ? shaderProgramColorPicking : shaderProgram;
 
-        int locUModel = glGetUniformLocation(shaderProgram, "uModel");
+        glUseProgram(program);
+        setGlobalUniforms(program);
+
+        int locUModel = glGetUniformLocation(program, "uModel");
         glUniformMatrix4fv(locUModel, false, entity.getModel().floatArray());
 
-        setPickingColor(shaderProgram, pickingId, active);
+        if (unlit) {
+            int locUColor = glGetUniformLocation(program, "uColor");
+            glUniform3f(locUColor, (float) LIGHT_COLOR.getX(), (float) LIGHT_COLOR.getY(), (float) LIGHT_COLOR.getZ());
+        } else {
+            setPickingColor(program, pickingId, active);
+        }
 
-        int locUUseNormalMap = glGetUniformLocation(shaderProgram, "uUseNormalMap");
+        int locUUseNormalMap = glGetUniformLocation(program, "uUseNormalMap");
         glUniform1i(locUUseNormalMap, entity.isNormalMapped() ? 1 : 0);
 
-        textureColor.bind(shaderProgram, "textureColor", 0);
-        textureNormal.bind(shaderProgram, "textureNormal", 1);
-        entity.getBuffers().draw(GL_TRIANGLES, shaderProgram);
+        textureColor.bind(program, "textureColor", 0);
+        textureNormal.bind(program, "textureNormal", 1);
+        entity.getBuffers().draw(GL_TRIANGLES, program);
     }
 
     // ID pro color picking: neaktivní objekt červeně, aktivní zeleně (Phong uniform uColor ignoruje)
@@ -199,8 +218,14 @@ public class RendererColorPicking extends AbstractRenderer {
         int locUProj = glGetUniformLocation(shaderProgram, "uProj");
         glUniformMatrix4fv(locUProj, false, proj.floatArray());
         // Pozice světla (programy bez uLightPos dostanou lokaci -1 a OpenGL volání ignoruje)
+        Vec3D lightPosition = getLightPosition();
         int locULightPos = glGetUniformLocation(shaderProgram, "uLightPos");
-        glUniform3f(locULightPos, (float) LIGHT_POSITION.getX(), (float) LIGHT_POSITION.getY(), (float) LIGHT_POSITION.getZ());
+        glUniform3f(locULightPos, (float) lightPosition.getX(), (float) lightPosition.getY(), (float) lightPosition.getZ());
+    }
+
+    // Pozice světla = počátek značky světla transformovaný její modelovou maticí
+    private Vec3D getLightPosition() {
+        return new Point3D().mul(lightEntity.getModel()).ignoreW();
     }
 
     // ====== Velikost okna ======
@@ -250,6 +275,7 @@ public class RendererColorPicking extends AbstractRenderer {
     private void transformActive(int sign) {
         if (activeIndex == NO_SELECTION) return;
         SceneEntity entity = entities.get(activeIndex);
+        if (entity.isLight() && transformMode != TransformMode.TRANSLATE) return;  // světlo jde jen posouvat
         Mat4 model = entity.getModel();
 
         switch (transformMode) {
