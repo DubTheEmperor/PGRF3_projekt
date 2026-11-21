@@ -6,6 +6,7 @@ import app.object.Cube;
 import app.object.Floor;
 import app.object.Icosahedron;
 import app.object.Pyramid;
+import app.object.SceneEntity;
 import lwjglutils.*;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.glfw.GLFWCursorPosCallback;
@@ -16,27 +17,33 @@ import transforms.*;
 
 import java.io.IOException;
 import java.nio.DoubleBuffer;
+import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
-import static org.lwjgl.glfw.GLFW.glfwGetCursorPos;
+import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL20.*;
 import static org.lwjgl.opengl.GL30C.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30C.GL_RG;
 import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 
 
 public class RendererColorPicking extends AbstractRenderer {
-    // ======== Picking ID (hodnota červeného kanálu 0–255) ========
+    // ======== Picking ID (0–255) ========
+    // ID je v červeném kanálu, u aktivního objektu v zeleném (zvýraznění v náhledu). Dekóduje se z R + G.
+    // ID objektu = (index + 1) * ID_STEP => max. 255 / ID_STEP objektů (pro víc objektů zmenšit krok)
+    private static final int ID_STEP = 40;
     private static final int ID_NONE = 0;   // pozadí picking textury (osy se do ní nekreslí)
-    private static final int ID_FLOOR = 30;
-    private static final int ID_DRAGON = 70;
-    private static final int ID_CUBE = 110;
-    private static final int ID_PYRAMID = 150;
-    private static final int ID_ICOSAHEDRON = 190;
+    private static final int NO_SELECTION = -1;
 
     // Šedé pozadí obrazovky
     private static final float SCREEN_BACKGROUND = 0.1f;
 
-    private OGLBuffers buffersAxis, buffersFloor, buffersDragon, buffersCube, buffersPyramid, buffersIcosahedron;
+    private OGLBuffers buffersAxis;
+    private final List<SceneEntity> entities = new ArrayList<>();
+    private int activeIndex = NO_SELECTION;
+
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
     private OGLTexture2D textureColor, textureNormal;
 
@@ -51,6 +58,7 @@ public class RendererColorPicking extends AbstractRenderer {
     public void init() {
         renderTarget = new OGLRenderTarget(width, height);
         viewer = new OGLTexture2D.Viewer();
+        textRenderer = new OGLTextRenderer(width, height);
 
         // ======== Kamera a projekce ========
         {
@@ -60,7 +68,7 @@ public class RendererColorPicking extends AbstractRenderer {
                     .withZenith(Math.toRadians(-45))
                     .withRadius(5)
                     .withFirstPerson(false);
-            proj = new Mat4PerspRH(Math.toRadians(45), height / (double) width, 0.1f, 100f);
+            proj = createProjection();
         }
 
         // ======== Textury ========
@@ -72,42 +80,51 @@ public class RendererColorPicking extends AbstractRenderer {
         }
 
         // ======== Scene objects ========
+        // Pořadí v seznamu určuje picking ID i přepínání šipkami
+        // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
         buffersAxis = new Axis().getBuffers();
-        buffersFloor = new Floor().getBuffers();
-        buffersDragon = ObjLoader.load("obj/dragon.obj");
-        buffersCube = new Cube().getBuffers();
-        buffersPyramid = new Pyramid().getBuffers();
-        buffersIcosahedron = new Icosahedron().getBuffers();
+        entities.add(new SceneEntity("Floor", new Floor().getBuffers(),
+                new Mat4RotY(Math.toRadians(90))));
+        entities.add(new SceneEntity("Dragon", ObjLoader.load("obj/dragon.obj"),
+                new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0))));
+        entities.add(new SceneEntity("Cube", new Cube().getBuffers(),
+                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25))));
+        entities.add(new SceneEntity("Pyramid", new Pyramid().getBuffers(),
+                new Mat4Scale(0.6).mul(new Mat4Transl(0.8, -1.6, 0))));
+        entities.add(new SceneEntity("Icosahedron", new Icosahedron().getBuffers(),
+                new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30))));
 
         // ======== Shaderové programy ========
         shaderProgramPhong = ShaderUtils.loadProgram("/phong");
         shaderProgramAxis = ShaderUtils.loadProgram("/axis");
         shaderProgramColorPicking = ShaderUtils.loadProgram("/colorPicking");
-        // TODO: shaderový program, který obarvuje ID barvou
     }
 
     public void display() {
+        resizeRenderTargetIfNeeded();
         glEnable(GL_DEPTH_TEST);
 
-        // TODO: Vykreslit scénu do textury
-        // TODO: shaderovým program, který obarvuje ID barvou
+        // ======== 1. průchod: ID barvy do textury (color picking) ========
         renderTarget.bind();
         glViewport(0, 0, width, height);
         glClearColor(ID_NONE / 255.0f, .0f, .0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderScene(shaderProgramColorPicking);
 
-        // Kresli na obrazovku
-        // TODO: tady už renderuju phongem
+        // ======== 2. průchod: Phong na obrazovku ========
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, width, height);
         glClearColor(SCREEN_BACKGROUND, SCREEN_BACKGROUND, SCREEN_BACKGROUND, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderScene(shaderProgramPhong);
-        renderAxis(); // osy se vykreslí jen na obrazovku
+        renderAxis(); // osy se vykreslí jen na obrazovku => nejdou vybrat
 
         glDisable(GL_DEPTH_TEST);
         viewer.view(renderTarget.getColorTexture(), -1, -1, 0.5);
+
+        // ======== Text ========
+        String activeName = activeIndex == NO_SELECTION ? "žádný" : entities.get(activeIndex).getName();
+        textRenderer.addStr2D(3, 20, "Aktivní objekt: " + activeName);
     }
 
     private void renderAxis() {
@@ -118,39 +135,33 @@ public class RendererColorPicking extends AbstractRenderer {
 
     // Kreslí jen objekty, které jde vybrat (používá se v picking i Phong průchodu)
     private void renderScene(int shaderProgram) {
-        // ======== Render objektů scény ========
-        // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
-        renderObject(shaderProgram, buffersFloor,
-                new Mat4RotY(Math.toRadians(90)), ID_FLOOR);
-
-        renderObject(shaderProgram, buffersDragon,
-                new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0)),
-                ID_DRAGON);
-
-        renderObject(shaderProgram, buffersCube,
-                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25)), ID_CUBE);
-
-        renderObject(shaderProgram, buffersPyramid,
-                new Mat4Scale(0.6).mul(new Mat4Transl(0.8, -1.6, 0)), ID_PYRAMID);
-
-        renderObject(shaderProgram, buffersIcosahedron,
-                new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30)), ID_ICOSAHEDRON);
+        for (int i = 0; i < entities.size(); i++) {
+            renderObject(shaderProgram, entities.get(i), pickingIdFromIndex(i), i == activeIndex);
+        }
     }
 
-    private void renderObject(int shaderProgram, OGLBuffers buffers, Mat4 model, int pickingId) {
+    private void renderObject(int shaderProgram, SceneEntity entity, int pickingId, boolean active) {
         glUseProgram(shaderProgram);
         setGlobalUniforms(shaderProgram);
 
         int locUModel = glGetUniformLocation(shaderProgram, "uModel");
-        glUniformMatrix4fv(locUModel, false, model.floatArray());
+        glUniformMatrix4fv(locUModel, false, entity.getModel().floatArray());
 
-        // ID pro color picking (Phong uniform uColor ignoruje)
-        int locUColor = glGetUniformLocation(shaderProgram, "uColor");
-        glUniform3f(locUColor, pickingId / 255.0f, .0f, .0f);
+        setPickingColor(shaderProgram, pickingId, active);
 
         textureColor.bind(shaderProgram, "textureColor", 0);
         textureNormal.bind(shaderProgram, "textureNormal", 1);
-        buffers.draw(GL_TRIANGLES, shaderProgram);
+        entity.getBuffers().draw(GL_TRIANGLES, shaderProgram);
+    }
+
+    // ID pro color picking: neaktivní objekt červeně, aktivní zeleně (Phong uniform uColor ignoruje)
+    private void setPickingColor(int shaderProgram, int pickingId, boolean active) {
+        float id = pickingId / 255.0f;
+        int locUColor = glGetUniformLocation(shaderProgram, "uColor");
+        if (active)
+            glUniform3f(locUColor, .0f, id, .0f);
+        else
+            glUniform3f(locUColor, id, .0f, .0f);
     }
 
     private void setGlobalUniforms(int shaderProgram) {
@@ -162,42 +173,94 @@ public class RendererColorPicking extends AbstractRenderer {
         glUniformMatrix4fv(locUProj, false, proj.floatArray());
     }
 
+    // ====== Velikost okna ======
+    private Mat4PerspRH createProjection() {
+        return new Mat4PerspRH(Math.toRadians(45), height / (double) width, 0.1f, 100f);
+    }
+
+    // Picking textura musí mít stejnou velikost jako okno, jinak by souřadnice kurzoru neseděly
+    private void resizeRenderTargetIfNeeded() {
+        if (renderTarget.getWidth() != width || renderTarget.getHeight() != height) {
+            renderTarget = new OGLRenderTarget(width, height);
+            proj = createProjection();
+        }
+    }
+
+    // ====== Výběr aktivního objektu ======
+    private int pickingIdFromIndex(int index) {
+        return (index + 1) * ID_STEP;
+    }
+
+    private int indexFromPickingId(int pickingId) {
+        if (pickingId == ID_NONE || pickingId % ID_STEP != 0) return NO_SELECTION;
+        int index = pickingId / ID_STEP - 1;
+        return index < entities.size() ? index : NO_SELECTION;
+    }
+
+    private void setActive(int index) {
+        activeIndex = index;
+    }
+
+    private void selectNext() {
+        int n = entities.size();
+        setActive(activeIndex == NO_SELECTION ? 0 : (activeIndex + 1) % n);
+    }
+
+    private void selectPrevious() {
+        int n = entities.size();
+        setActive(activeIndex == NO_SELECTION ? n - 1 : (activeIndex - 1 + n) % n);
+    }
+
+    // Přečte jeden pixel picking textury pod kurzorem a vrátí index objektu (nebo NO_SELECTION)
+    private int pickEntityAt(double cursorX, double cursorY) {
+        int x = (int) cursorX;
+        int y = renderTarget.getHeight() - (int) cursorY - 1; // okno má počátek vlevo nahoře, textura vlevo dole
+        if (x < 0 || x >= renderTarget.getWidth() || y < 0 || y >= renderTarget.getHeight()) {
+            return NO_SELECTION;
+        }
+
+        FloatBuffer pixel = BufferUtils.createFloatBuffer(2);
+        renderTarget.bind();
+        glReadPixels(x, y, 1, 1, GL_RG, GL_FLOAT, pixel);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // Nenulový je vždy jen jeden kanál (R = neaktivní, G = aktivní) => součet je přímo ID
+        int pickingId = Math.round((pixel.get(0) + pixel.get(1)) * 255);
+        return indexFromPickingId(pickingId);
+    }
+
     // ====== Callbacks ======
     private GLFWKeyCallback keyCallback = new GLFWKeyCallback() {
         @Override
         public void invoke(long window, int key, int scancode, int action, int mods) {
+            if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE) {
+                glfwSetWindowShouldClose(window, true);
+            }
+
+            if (action == GLFW_PRESS) {
+                switch (key) {
+                    case GLFW_KEY_RIGHT -> selectNext();
+                    case GLFW_KEY_LEFT -> selectPrevious();
+                }
+            }
         }
     };
 
     private GLFWMouseButtonCallback mbCallback = new GLFWMouseButtonCallback() {
         @Override
         public void invoke(long window, int button, int action, int mods) {
-            if (button == 0) {
-                mousePressed = action == 1;
+            // Levé tlačítko: rozhlížení kamerou
+            if (button == GLFW_MOUSE_BUTTON_LEFT) {
+                mousePressed = action == GLFW_PRESS;
             }
 
-            DoubleBuffer xBuffer = BufferUtils.createDoubleBuffer(1);
-            DoubleBuffer yBuffer = BufferUtils.createDoubleBuffer(1);
-            glfwGetCursorPos(window, xBuffer, yBuffer);
-            double x = xBuffer.get(0);
-            double y = yBuffer.get(0);
-
-            OGLTexImageFloat image = renderTarget.getColorTexture().getTexImage(new OGLTexImageFloat.Format(4));
-            System.out.println("x: " + x);
-            System.out.println("y: " + y);
-
-            int texY = renderTarget.getHeight() - (int)Math.round(y) - 1;
-            float id = image.getPixel((int)Math.round(x), texY, 0) * 255;
-            System.out.println("id: " + id);
-            switch ((int) Math.round(id)) {
-                case ID_FLOOR -> System.out.println("Floor");
-                case ID_DRAGON -> System.out.println("Dragon");
-                case ID_CUBE -> System.out.println("Cube");
-                case ID_PYRAMID -> System.out.println("Pyramid");
-                case ID_ICOSAHEDRON -> System.out.println("Icosahedron");
-                default -> System.out.println("Nic nevybráno");
+            // Pravé tlačítko (stisk): výběr aktivního objektu color pickingem
+            if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+                DoubleBuffer xBuffer = BufferUtils.createDoubleBuffer(1);
+                DoubleBuffer yBuffer = BufferUtils.createDoubleBuffer(1);
+                glfwGetCursorPos(window, xBuffer, yBuffer);
+                setActive(pickEntityAt(xBuffer.get(0), yBuffer.get(0)));
             }
-
         }
     };
 
@@ -239,6 +302,4 @@ public class RendererColorPicking extends AbstractRenderer {
     public GLFWScrollCallback getScrollCallback() {
         return scrollCallback;
     }
-
-
 }
