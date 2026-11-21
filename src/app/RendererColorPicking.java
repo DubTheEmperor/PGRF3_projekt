@@ -40,6 +40,9 @@ public class RendererColorPicking extends AbstractRenderer {
     // Šedé pozadí obrazovky
     private static final float SCREEN_BACKGROUND = 0.1f;
 
+    // Pozice světla ve světových souřadnicích (strana výchozí kamery, nad scénou)
+    private static final Vec3D LIGHT_POSITION = new Vec3D(-1.5, 1.5, 2.0);
+
     // ======== Transformace aktivního objektu (krok na jeden stisk Q/E) ========
     private static final double TRANSLATE_STEP = 0.1;
     private static final double ROTATE_STEP = Math.toRadians(5);
@@ -103,7 +106,7 @@ public class RendererColorPicking extends AbstractRenderer {
         // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
         buffersAxis = new Axis().getBuffers();
         entities.add(new SceneEntity("Floor", new Floor().getBuffers(),
-                new Mat4RotY(Math.toRadians(90))));
+                new Mat4RotY(Math.toRadians(90)), true));
         entities.add(new SceneEntity("Dragon", ObjLoader.load("obj/dragon.obj"),
                 new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0))));
         entities.add(new SceneEntity("Cube", new Cube().getBuffers(),
@@ -170,6 +173,9 @@ public class RendererColorPicking extends AbstractRenderer {
 
         setPickingColor(shaderProgram, pickingId, active);
 
+        int locUUseNormalMap = glGetUniformLocation(shaderProgram, "uUseNormalMap");
+        glUniform1i(locUUseNormalMap, entity.isNormalMapped() ? 1 : 0);
+
         textureColor.bind(shaderProgram, "textureColor", 0);
         textureNormal.bind(shaderProgram, "textureNormal", 1);
         entity.getBuffers().draw(GL_TRIANGLES, shaderProgram);
@@ -192,6 +198,9 @@ public class RendererColorPicking extends AbstractRenderer {
         // Proj matice - posíláme do shaderu jako uniform
         int locUProj = glGetUniformLocation(shaderProgram, "uProj");
         glUniformMatrix4fv(locUProj, false, proj.floatArray());
+        // Pozice světla (programy bez uLightPos dostanou lokaci -1 a OpenGL volání ignoruje)
+        int locULightPos = glGetUniformLocation(shaderProgram, "uLightPos");
+        glUniform3f(locULightPos, (float) LIGHT_POSITION.getX(), (float) LIGHT_POSITION.getY(), (float) LIGHT_POSITION.getZ());
     }
 
     // ====== Velikost okna ======

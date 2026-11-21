@@ -8,7 +8,9 @@ in vec3 inNormal;
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProj;
+uniform vec3 uLightPos;     // pozice světla ve světových souřadnicích
 
+// Všechny vektory pro osvětlení jsou ve view space
 out vec3 vertColor;
 out vec3 vertPosition;
 out vec2 vertTexCoord;
@@ -26,7 +28,7 @@ void main() {
 
     vertNormal = transpose(inverse(mat3(matMV))) * inNormal;
 
-    vec4 lightPosition = uView * vec4(0.5, 0, 1, 1);
+    vec4 lightPosition = uView * vec4(uLightPos, 1.0);
     lightDirection = lightPosition.xyz - objectPosition.xyz;
     viewDirection = -objectPosition.xyz;
 
