@@ -2,7 +2,10 @@ package app;
 
 import app.objLoader.ObjLoader;
 import app.object.Axis;
+import app.object.Cube;
 import app.object.Floor;
+import app.object.Icosahedron;
+import app.object.Pyramid;
 import lwjglutils.*;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.glfw.GLFWCursorPosCallback;
@@ -22,7 +25,14 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 
 
 public class RendererColorPicking extends AbstractRenderer {
-    private OGLBuffers buffersAxis, buffersFloor, buffersDragon;
+    // ======== Picking ID (hodnota červeného kanálu 0–255) ========
+    private static final int ID_FLOOR = 30;
+    private static final int ID_DRAGON = 70;
+    private static final int ID_CUBE = 110;
+    private static final int ID_PYRAMID = 150;
+    private static final int ID_ICOSAHEDRON = 190;
+
+    private OGLBuffers buffersAxis, buffersFloor, buffersDragon, buffersCube, buffersPyramid, buffersIcosahedron;
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
     private OGLTexture2D textureColor, textureNormal;
 
@@ -63,6 +73,9 @@ public class RendererColorPicking extends AbstractRenderer {
         buffersAxis = new Axis().getBuffers();
         buffersFloor = new Floor().getBuffers();
         buffersDragon = ObjLoader.load("obj/dragon.obj");
+        buffersCube = new Cube().getBuffers();
+        buffersPyramid = new Pyramid().getBuffers();
+        buffersIcosahedron = new Icosahedron().getBuffers();
 
         // ======== Shaderové programy ========
         shaderProgramPhong = ShaderUtils.loadProgram("/phong");
@@ -101,31 +114,39 @@ public class RendererColorPicking extends AbstractRenderer {
             buffersAxis.draw(GL_LINES, shaderProgramAxis);
         }
 
-        // ======== Render Floor ========
-        // TODO: do shaderu, který vykresluje do textury, musíme přidat ID (barva)
-        {
-            glUseProgram(shaderProgram);
-            setGlobalUniforms(shaderProgram);
-            int locUModel = glGetUniformLocation(shaderProgram, "uModel");
-            glUniformMatrix4fv(locUModel, false, new Mat4RotY(Math.toRadians(90)).floatArray());
-            int locUColor = glGetUniformLocation(shaderProgram, "uColor");
-            glUniform3f(locUColor, 30.0f / 255, .0f, .0f);
+        // ======== Render objektů scény ========
+        // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
+        renderObject(shaderProgram, buffersFloor,
+                new Mat4RotY(Math.toRadians(90)), ID_FLOOR);
 
-            textureColor.bind(shaderProgram, "textureColor", 0);
-            textureNormal.bind(shaderProgram, "textureNormal", 1);
-            buffersFloor.draw(GL_TRIANGLES, shaderProgram);
-        }
+        renderObject(shaderProgram, buffersDragon,
+                new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0)),
+                ID_DRAGON);
 
-        // ======== Render Dragon ========
-        {
-            glUseProgram(shaderProgram);
-            setGlobalUniforms(shaderProgram);
-            int locUModel = glGetUniformLocation(shaderProgram, "uModel");
-            glUniformMatrix4fv(locUModel, false, new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0)).floatArray());
-            int locUColor = glGetUniformLocation(shaderProgram, "uColor");
-            glUniform3f(locUColor, 70.0f / 255, .0f, .0f);
-            buffersDragon.draw(GL_TRIANGLES, shaderProgram);
-        }
+        renderObject(shaderProgram, buffersCube,
+                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25)), ID_CUBE);
+
+        renderObject(shaderProgram, buffersPyramid,
+                new Mat4Scale(0.6).mul(new Mat4Transl(0.8, -1.6, 0)), ID_PYRAMID);
+
+        renderObject(shaderProgram, buffersIcosahedron,
+                new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30)), ID_ICOSAHEDRON);
+    }
+
+    private void renderObject(int shaderProgram, OGLBuffers buffers, Mat4 model, int pickingId) {
+        glUseProgram(shaderProgram);
+        setGlobalUniforms(shaderProgram);
+
+        int locUModel = glGetUniformLocation(shaderProgram, "uModel");
+        glUniformMatrix4fv(locUModel, false, model.floatArray());
+
+        // ID pro color picking (Phong uniform uColor ignoruje)
+        int locUColor = glGetUniformLocation(shaderProgram, "uColor");
+        glUniform3f(locUColor, pickingId / 255.0f, .0f, .0f);
+
+        textureColor.bind(shaderProgram, "textureColor", 0);
+        textureNormal.bind(shaderProgram, "textureNormal", 1);
+        buffers.draw(GL_TRIANGLES, shaderProgram);
     }
 
     private void setGlobalUniforms(int shaderProgram) {
@@ -164,12 +185,14 @@ public class RendererColorPicking extends AbstractRenderer {
             int texY = renderTarget.getHeight() - (int)Math.round(y) - 1;
             float id = image.getPixel((int)Math.round(x), texY, 0) * 255;
             System.out.println("id: " + id);
-            if((int)Math.round(id) == 30)
-                System.out.println("Floor");
-            else if((int)Math.round(id) == 70)
-                System.out.println("Dragon");
-            else
-                System.out.println("Nic nevybráno");
+            switch ((int) Math.round(id)) {
+                case ID_FLOOR -> System.out.println("Floor");
+                case ID_DRAGON -> System.out.println("Dragon");
+                case ID_CUBE -> System.out.println("Cube");
+                case ID_PYRAMID -> System.out.println("Pyramid");
+                case ID_ICOSAHEDRON -> System.out.println("Icosahedron");
+                default -> System.out.println("Nic nevybráno");
+            }
 
         }
     };
