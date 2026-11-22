@@ -30,11 +30,11 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 
 
 public class RendererColorPicking extends AbstractRenderer {
-    // ======== Picking ID (0–255) ========
+    // ======== Picking ID ========
+    // ID objektu = index + 1, do barvy se zapisuje jako ID / počet objektů (pickingScale) => rozsah (0, 1].
+    // Render target je GL_RGBA32F, takže hodnota je přesná a počet objektů není omezený na 255 úrovní;
+    // jasnosti se rovnoměrně rozprostřou, takže objekty jsou v náhledu rozeznatelné.
     // ID je v červeném kanálu, u aktivního objektu v zeleném (zvýraznění v náhledu). Dekóduje se z R + G.
-    // ID objektu = (index + 1) * ID_STEP => max. 255 / ID_STEP objektů (pro víc objektů zmenšit krok)
-    // Pozor: s ID_STEP = 40 se vejde max. 6 objektů (6 * 40 = 240), teď je jich 5 (vč. světla) => volné jedno místo
-    private static final int ID_STEP = 40;
     private static final int ID_NONE = 0;   // pozadí picking textury (osy se do ní nekreslí)
     private static final int NO_SELECTION = -1;
 
@@ -140,7 +140,7 @@ public class RendererColorPicking extends AbstractRenderer {
         // ======== 1. průchod: ID barvy do textury (color picking) ========
         renderTarget.bind();
         glViewport(0, 0, width, height);
-        glClearColor(ID_NONE / 255.0f, .0f, .0f, 1.0f);
+        glClearColor(ID_NONE, .0f, .0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderScene(shaderProgramColorPicking);
 
@@ -217,7 +217,7 @@ public class RendererColorPicking extends AbstractRenderer {
 
     // ID pro color picking: neaktivní objekt červeně, aktivní zeleně (Phong uniform uColor ignoruje)
     private void setPickingColor(int shaderProgram, int pickingId, boolean active) {
-        float id = pickingId / 255.0f;
+        float id = pickingId / pickingScale();
         int locUColor = glGetUniformLocation(shaderProgram, "uColor");
         if (active)
             glUniform3f(locUColor, .0f, id, .0f);
@@ -258,13 +258,17 @@ public class RendererColorPicking extends AbstractRenderer {
 
     // ====== Výběr aktivního objektu ======
     private int pickingIdFromIndex(int index) {
-        return (index + 1) * ID_STEP;
+        return index + 1;
     }
 
     private int indexFromPickingId(int pickingId) {
-        if (pickingId == ID_NONE || pickingId % ID_STEP != 0) return NO_SELECTION;
-        int index = pickingId / ID_STEP - 1;
-        return index < entities.size() ? index : NO_SELECTION;
+        int index = pickingId - 1;
+        return index >= 0 && index < entities.size() ? index : NO_SELECTION;
+    }
+
+    // Společné měřítko kódování i dekódování ID do barvy (ID / počet objektů)
+    private float pickingScale() {
+        return entities.size();
     }
 
     // Jediné místo změny výběru => zde se přepíná i režim kamery
@@ -327,8 +331,8 @@ public class RendererColorPicking extends AbstractRenderer {
         glReadPixels(x, y, 1, 1, GL_RG, GL_FLOAT, pixel);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        // Nenulový je vždy jen jeden kanál (R = neaktivní, G = aktivní) => součet je přímo ID
-        int pickingId = Math.round((pixel.get(0) + pixel.get(1)) * 255);
+        // Nenulový je vždy jen jeden kanál (R = neaktivní, G = aktivní) => součet je zakódované ID
+        int pickingId = Math.round((pixel.get(0) + pixel.get(1)) * pickingScale());
         return indexFromPickingId(pickingId);
     }
 
