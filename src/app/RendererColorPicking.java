@@ -31,23 +31,19 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 
 public class RendererColorPicking extends AbstractRenderer {
     // ======== Picking ID ========
-    // ID objektu = index + 1, do barvy se zapisuje jako ID / počet objektů (pickingScale) => rozsah (0, 1].
-    // Render target je GL_RGBA32F, takže hodnota je přesná a počet objektů není omezený na 255 úrovní;
-    // jasnosti se rovnoměrně rozprostřou, takže objekty jsou v náhledu rozeznatelné.
-    // ID je v červeném kanálu, u aktivního objektu v zeleném (zvýraznění v náhledu). Dekóduje se z R + G.
-    private static final int ID_NONE = 0;   // pozadí picking textury (osy se do ní nekreslí)
+    private static final int ID_NONE = 0;   // pozadí picking textury
     private static final int NO_SELECTION = -1;
 
     // Šedé pozadí obrazovky
     private static final float SCREEN_BACKGROUND = 0.1f;
 
     // ======== Světlo ========
-    // Výchozí pozice světla ve světových souřadnicích (strana výchozí kamery, nad scénou)
+    // Výchozí pozice světla ve světových souřadnicích
     private static final Vec3D LIGHT_POSITION = new Vec3D(-1.5, 1.5, 2.0);
-    private static final Vec3D LIGHT_COLOR = new Vec3D(1.0, 0.9, 0.2);     // barva značky světla
+    private static final Vec3D LIGHT_COLOR = new Vec3D(1.0, 0.9, 0.2);
     private static final double LIGHT_MARKER_SCALE = 0.1;
 
-    // ======== Transformace aktivního objektu (krok na jeden stisk Q/E) ========
+    // ======== Transformace aktivního objektu ========
     private static final double TRANSLATE_STEP = 0.1;
     private static final double ROTATE_STEP = Math.toRadians(5);
     private static final double SCALE_STEP = 0.1;
@@ -62,14 +58,46 @@ public class RendererColorPicking extends AbstractRenderer {
         }
     }
 
+    // ======== Debug režimy (uDebugMode v phong.frag, id musí odpovídat konstantám DEBUG_* ve shaderu) ========
+    private static final int DEBUG_OFF = 0;
+
+    private enum DebugMode {
+        POSITION(1, "Pozice (svět xyz)"),
+        DEPTH(2, "Hloubka (pohled)"),
+        VERTEX_COLOR(3, "Barva vrcholu (bez stínování)"),
+        TEXTURE(4, "Textura (bez stínování)"),
+        NORMAL(5, "Normála (view space)"),
+        TEX_COORD(6, "Texturovací souřadnice"),
+        LIGHT_DISTANCE(7, "Vzdálenost od světla"),
+        TANGENT(8, "Tečna (view space)"),
+        DIFFUSE(9, "Difuzní člen N·L");
+
+        private final int id;
+        private final String label;
+
+        DebugMode(int id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+
+        // Další režim v pořadí
+        private DebugMode next() {
+            DebugMode[] modes = values();
+            return modes[(ordinal() + 1) % modes.length];
+        }
+    }
+
     private OGLBuffers buffersAxis;
     private final List<SceneEntity> entities = new ArrayList<>();
-    private SceneEntity lightEntity;    // značka světla (je i v entities)
+    private SceneEntity lightEntity;
     private int activeIndex = NO_SELECTION;
 
     private TransformMode transformMode = TransformMode.TRANSLATE;
     private Vec3D transformAxis = new Vec3D(1, 0, 0);
     private String transformAxisName = "X";
+
+    private boolean debugEnabled = false;
+    private DebugMode debugMode = DebugMode.POSITION;
 
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
     private OGLTexture2D textureBrickwall, textureBrickwallNormal, textureGold, textureD20, textureElephant, textureElephantNormal;
@@ -104,11 +132,8 @@ public class RendererColorPicking extends AbstractRenderer {
 
         // ======== Scene objects ========
         // Pořadí v seznamu určuje picking ID i přepínání šipkami
-        // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
         buffersAxis = new Axis().getBuffers();
-        // Elephant: UV ze souboru (rozsah mimo [0, 1] => GL_REPEAT), normály v souboru jsou chybné => přepočet.
-        // Model: nohy na +Z (nahoru je -Z), hlava na -X, bok v ose Y.
-        // Posun dá střed pod nohama (max Z) do počátku, RotX(180°) převede -Z modelu na +Z scény.
+
         entities.add(new SceneEntity("Elephant", ObjLoader.loadWithComputedNormals("obj/elephantBody.obj"),
                 new Mat4Transl(9.545, -0.434, -40.658).mul(new Mat4Scale(0.01)).mul(new Mat4RotX(Math.toRadians(180))).mul(new Mat4Transl(-0.25, 0, 0)),
                 textureElephant, textureElephantNormal));
@@ -119,7 +144,7 @@ public class RendererColorPicking extends AbstractRenderer {
         entities.add(new SceneEntity("Icosahedron", new Icosahedron().getBuffers(),
                 new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30)), textureD20));
 
-        // Světlo: pozice = počátek značky po modelové transformaci (getLightPosition)
+        // Světlo
         lightEntity = SceneEntity.createLight("Light", new Icosahedron().getBuffers(),
                 new Mat4Scale(LIGHT_MARKER_SCALE).mul(new Mat4Transl(LIGHT_POSITION)));
         entities.add(lightEntity);
@@ -150,7 +175,7 @@ public class RendererColorPicking extends AbstractRenderer {
         glClearColor(SCREEN_BACKGROUND, SCREEN_BACKGROUND, SCREEN_BACKGROUND, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderScene(shaderProgramPhong);
-        renderAxis(); // osy se vykreslí jen na obrazovku => nejdou vybrat
+        renderAxis(); // osy se vykreslí jen na obrazovku
 
         glDisable(GL_DEPTH_TEST);
         viewer.view(renderTarget.getColorTexture(), -1, -1, 0.5);
@@ -160,6 +185,7 @@ public class RendererColorPicking extends AbstractRenderer {
         textRenderer.addStr2D(3, 20, "Aktivní objekt: " + activeName);
         textRenderer.addStr2D(3, 40, "Osa: " + transformAxisName + " (1/2/3) | Režim: " + transformMode.label
                 + " (4/5/6) | Q/E: −/+ | Backspace: reset");
+        textRenderer.addStr2D(3, 60, debugStatus());
     }
 
     private void renderAxis() {
@@ -168,7 +194,7 @@ public class RendererColorPicking extends AbstractRenderer {
         buffersAxis.draw(GL_LINES, shaderProgramAxis);
     }
 
-    // Kreslí jen objekty, které jde vybrat (používá se v picking i Phong průchodu)
+    // Kreslí jen objekty, které jde vybrat
     private void renderScene(int shaderProgram) {
         for (int i = 0; i < entities.size(); i++) {
             renderObject(shaderProgram, entities.get(i), pickingIdFromIndex(i), i == activeIndex);
@@ -176,7 +202,6 @@ public class RendererColorPicking extends AbstractRenderer {
     }
 
     private void renderObject(int shaderProgram, SceneEntity entity, int pickingId, boolean active) {
-        // Značka světla se na obrazovku kreslí bez osvětlení jednou barvou (program colorPicking kreslí uColor)
         boolean unlit = entity.isLight() && shaderProgram == shaderProgramPhong;
         int program = unlit ? shaderProgramColorPicking : shaderProgram;
 
@@ -200,7 +225,7 @@ public class RendererColorPicking extends AbstractRenderer {
         entity.getBuffers().draw(GL_TRIANGLES, program);
     }
 
-    // Textury entity; značka světla žádné nemá (null) a picking program je nepoužívá
+    // Textury entity
     private void bindTextures(int shaderProgram, SceneEntity entity) {
         if (entity.getTextureColor() != null)
             entity.getTextureColor().bind(shaderProgram, "textureColor", 0);
@@ -208,7 +233,6 @@ public class RendererColorPicking extends AbstractRenderer {
             entity.getTextureNormal().bind(shaderProgram, "textureNormal", 1);
     }
 
-    // OGLTexture2D nastavuje GL_CLAMP_TO_EDGE; pro UV mimo [0, 1] (OBJ modely) přepne na opakování
     private void enableRepeat(OGLTexture2D texture) {
         texture.bind();
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -236,6 +260,9 @@ public class RendererColorPicking extends AbstractRenderer {
         Vec3D lightPosition = getLightPosition();
         int locULightPos = glGetUniformLocation(shaderProgram, "uLightPos");
         glUniform3f(locULightPos, (float) lightPosition.getX(), (float) lightPosition.getY(), (float) lightPosition.getZ());
+        // Debug režim (jen phong; ostatní programy uniform nemají)
+        int locUDebugMode = glGetUniformLocation(shaderProgram, "uDebugMode");
+        glUniform1i(locUDebugMode, debugEnabled ? debugMode.id : DEBUG_OFF);
     }
 
     // Pozice světla = počátek značky světla transformovaný její modelovou maticí
@@ -318,6 +345,18 @@ public class RendererColorPicking extends AbstractRenderer {
         entities.get(activeIndex).resetModel();
     }
 
+    // ====== Debug režimy ======
+    private void nextDebugMode() {
+        if (debugEnabled) debugMode = debugMode.next();
+    }
+
+    private String debugStatus() {
+        return debugEnabled
+                ? "Debug: " + debugMode.label + " (; vypnout | Tab: další režim)"
+                : "Debug: vypnuto (; zapnout)";
+    }
+
+    // ====== Picking ======
     // Přečte jeden pixel picking textury pod kurzorem a vrátí index objektu (nebo NO_SELECTION)
     private int pickEntityAt(double cursorX, double cursorY) {
         int x = (int) cursorX;
@@ -336,7 +375,7 @@ public class RendererColorPicking extends AbstractRenderer {
         return indexFromPickingId(pickingId);
     }
 
-    // ====== Callbacks (kamera je v CameraController, sem se jen přeposílá) ======
+    // ====== Callbacks (kamera je v CameraController) ======
     private GLFWKeyCallback keyCallback = new GLFWKeyCallback() {
         @Override
         public void invoke(long window, int key, int scancode, int action, int mods) {
@@ -357,6 +396,8 @@ public class RendererColorPicking extends AbstractRenderer {
                     case GLFW_KEY_5 -> transformMode = TransformMode.ROTATE;
                     case GLFW_KEY_6 -> transformMode = TransformMode.SCALE;
                     case GLFW_KEY_BACKSPACE -> resetActive();
+                    case GLFW_KEY_GRAVE_ACCENT -> debugEnabled = !debugEnabled;
+                    case GLFW_KEY_TAB -> nextDebugMode();
                 }
             }
 

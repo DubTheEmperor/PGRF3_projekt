@@ -4,25 +4,25 @@ in vec3 inColor;
 in vec3 inPosition;
 in vec2 inTexCoord;
 in vec3 inNormal;
-in vec4 inTangent;          // xyz = tečna, w = ±1 orientace bitangenty
+in vec4 inTangent;
 
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProj;
-uniform vec3 uLightPos;     // pozice světla ve světových souřadnicích
+uniform vec3 uLightPos;
 
 // Všechny vektory pro osvětlení jsou ve view space
 out vec3 vertColor;
 out vec3 vertPosition;
 out vec2 vertTexCoord;
 out vec3 vertNormal;
-out mat3 vertTBN;           // tangent space -> view space (pro normal mapping)
+out mat3 vertTBN;
 out vec3 lightDirection;
 out vec3 viewDirection;
 
 void main() {
     vertColor = inColor;
-    vertPosition = inPosition;
+    vertPosition = (uModel * vec4(inPosition, 1.0)).xyz;   // world space, jen pro debug režim pozice
     vertTexCoord = inTexCoord;
 
     mat4 matMV = uView * uModel;
@@ -33,7 +33,7 @@ void main() {
     vec3 N = normalize(normalMatrix * inNormal);
     vertNormal = N;
 
-    // Pojistka: buffer bez inTangent dává (0,0,0,1) => TBN se nepočítá (MeshBuilder i ObjLoader tečny mají)
+    // buffer bez inTangent dává (0,0,0,1) => TBN se nepočítá (MeshBuilder i ObjLoader tečny mají)
     if (dot(inTangent.xyz, inTangent.xyz) > 0.0) {
         vec3 T = normalize(normalMatrix * inTangent.xyz);
         T = normalize(T - dot(T, N) * N);   // Gram-Schmidt
