@@ -33,7 +33,7 @@ void main() {
     vec3 N = normalize(normalMatrix * inNormal);
     vertNormal = N;
 
-    // Objekty bez tečen (OBJ) mají atribut (0,0,0,1) => TBN se nepočítá (normal mapping stejně nepoužívají)
+    // Pojistka: buffer bez inTangent dává (0,0,0,1) => TBN se nepočítá (MeshBuilder i ObjLoader tečny mají)
     if (dot(inTangent.xyz, inTangent.xyz) > 0.0) {
         vec3 T = normalize(normalMatrix * inTangent.xyz);
         T = normalize(T - dot(T, N) * N);   // Gram-Schmidt

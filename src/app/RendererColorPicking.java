@@ -3,7 +3,6 @@ package app;
 import app.objLoader.ObjLoader;
 import app.object.Axis;
 import app.object.Cube;
-import app.object.Floor;
 import app.object.Icosahedron;
 import app.object.Pyramid;
 import app.object.SceneEntity;
@@ -34,7 +33,7 @@ public class RendererColorPicking extends AbstractRenderer {
     // ======== Picking ID (0–255) ========
     // ID je v červeném kanálu, u aktivního objektu v zeleném (zvýraznění v náhledu). Dekóduje se z R + G.
     // ID objektu = (index + 1) * ID_STEP => max. 255 / ID_STEP objektů (pro víc objektů zmenšit krok)
-    // Pozor: se 6 objekty (vč. světla) je limit vyčerpaný (6 * 40 = 240), další objekt => zmenšit ID_STEP
+    // Pozor: s ID_STEP = 40 se vejde max. 6 objektů (6 * 40 = 240), teď je jich 5 (vč. světla) => volné jedno místo
     private static final int ID_STEP = 40;
     private static final int ID_NONE = 0;   // pozadí picking textury (osy se do ní nekreslí)
     private static final int NO_SELECTION = -1;
@@ -73,7 +72,7 @@ public class RendererColorPicking extends AbstractRenderer {
     private String transformAxisName = "X";
 
     private int shaderProgramPhong, shaderProgramAxis, shaderProgramColorPicking;
-    private OGLTexture2D textureColor, textureNormal;
+    private OGLTexture2D textureBrickwall, textureBrickwallNormal, textureGold, textureD20, textureElephant, textureElephantNormal;
 
     private final CameraController cameraController = new CameraController();
     private Mat4PerspRH proj;
@@ -91,26 +90,34 @@ public class RendererColorPicking extends AbstractRenderer {
 
         // ======== Textury ========
         try {
-            textureColor = new OGLTexture2D("./textures/brickwall.jpg");
-            textureNormal = new OGLTexture2D("./textures/brickwall_normal.jpg");
+            textureBrickwall = new OGLTexture2D("./textures/brickwall.jpg");
+            textureBrickwallNormal = new OGLTexture2D("./textures/brickwall_normal.jpg");
+            textureGold = new OGLTexture2D("./textures/gold.jpg");
+            textureD20 = new OGLTexture2D("./textures/d20.png");
+            textureElephant = new OGLTexture2D("textures/marble.jpg");
+            textureElephantNormal = new OGLTexture2D("textures/marble_normal.png");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        enableRepeat(textureElephant);
+        enableRepeat(textureElephantNormal);
 
         // ======== Scene objects ========
         // Pořadí v seznamu určuje picking ID i přepínání šipkami
         // Modelové matice: row-vector konvence => A.mul(B) aplikuje nejdřív A, potom B
         buffersAxis = new Axis().getBuffers();
-        entities.add(new SceneEntity("Floor", new Floor().getBuffers(),
-                new Mat4RotY(Math.toRadians(90)), true));
-        entities.add(new SceneEntity("Dragon", ObjLoader.load("obj/dragon.obj"),
-                new Mat4Scale(0.05f).mul(new Mat4RotX(Math.toRadians(90))).mul(new Mat4RotZ(Math.toRadians(90))).mul(new Mat4Transl(-0.25, 0, 0))));
+        // Elephant: UV ze souboru (rozsah mimo [0, 1] => GL_REPEAT), normály v souboru jsou chybné => přepočet.
+        // Model: nohy na +Z (nahoru je -Z), hlava na -X, bok v ose Y.
+        // Posun dá střed pod nohama (max Z) do počátku, RotX(180°) převede -Z modelu na +Z scény.
+        entities.add(new SceneEntity("Elephant", ObjLoader.loadWithComputedNormals("obj/elephantBody.obj"),
+                new Mat4Transl(9.545, -0.434, -40.658).mul(new Mat4Scale(0.01)).mul(new Mat4RotX(Math.toRadians(180))).mul(new Mat4Transl(-0.25, 0, 0)),
+                textureElephant, textureElephantNormal));
         entities.add(new SceneEntity("Cube", new Cube().getBuffers(),
-                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25)), true));
+                new Mat4Scale(0.5).mul(new Mat4Transl(0.8, 1.6, 0.25)), textureBrickwall, textureBrickwallNormal));
         entities.add(new SceneEntity("Pyramid", new Pyramid().getBuffers(),
-                new Mat4Scale(0.6).mul(new Mat4Transl(0.8, -1.6, 0))));
+                new Mat4Scale(0.6).mul(new Mat4Transl(0.8, -1.6, 0)), textureGold));
         entities.add(new SceneEntity("Icosahedron", new Icosahedron().getBuffers(),
-                new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30))));
+                new Mat4Scale(0.35).mul(new Mat4Transl(-1.2, -1.0, 0.30)), textureD20));
 
         // Světlo: pozice = počátek značky po modelové transformaci (getLightPosition)
         lightEntity = SceneEntity.createLight("Light", new Icosahedron().getBuffers(),
@@ -189,9 +196,23 @@ public class RendererColorPicking extends AbstractRenderer {
         int locUUseNormalMap = glGetUniformLocation(program, "uUseNormalMap");
         glUniform1i(locUUseNormalMap, entity.isNormalMapped() ? 1 : 0);
 
-        textureColor.bind(program, "textureColor", 0);
-        textureNormal.bind(program, "textureNormal", 1);
+        bindTextures(program, entity);
         entity.getBuffers().draw(GL_TRIANGLES, program);
+    }
+
+    // Textury entity; značka světla žádné nemá (null) a picking program je nepoužívá
+    private void bindTextures(int shaderProgram, SceneEntity entity) {
+        if (entity.getTextureColor() != null)
+            entity.getTextureColor().bind(shaderProgram, "textureColor", 0);
+        if (entity.getTextureNormal() != null)
+            entity.getTextureNormal().bind(shaderProgram, "textureNormal", 1);
+    }
+
+    // OGLTexture2D nastavuje GL_CLAMP_TO_EDGE; pro UV mimo [0, 1] (OBJ modely) přepne na opakování
+    private void enableRepeat(OGLTexture2D texture) {
+        texture.bind();
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     }
 
     // ID pro color picking: neaktivní objekt červeně, aktivní zeleně (Phong uniform uColor ignoruje)

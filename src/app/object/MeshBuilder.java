@@ -16,7 +16,7 @@ public class MeshBuilder {
     private static final double EPSILON = 1e-9;
 
     /** Tečna stěny: směr rostoucího U a orientace bitangenty (B = cross(N, T) * handedness). */
-    record Tangent(Vec3D direction, double handedness) {
+    public record Tangent(Vec3D direction, double handedness) {
     }
 
     private final List<Float> vertexData = new ArrayList<>();
@@ -65,7 +65,7 @@ public class MeshBuilder {
      * Tečna trojúhelníku z pozic a UV: T = (e1 * dv2 - e2 * dv1) / det, kde det = du1 * dv2 - du2 * dv1.
      * Znaménko det určuje, zda je UV zrcadlené (handedness). Výsledek je ortogonalizovaný k normále.
      */
-    static Tangent computeTangent(Vec3D p0, Vec3D p1, Vec3D p2, Vec2D uv0, Vec2D uv1, Vec2D uv2, Vec3D normal) {
+    public static Tangent computeTangent(Vec3D p0, Vec3D p1, Vec3D p2, Vec2D uv0, Vec2D uv1, Vec2D uv2, Vec3D normal) {
         Vec3D e1 = p1.sub(p0);
         Vec3D e2 = p2.sub(p0);
         double du1 = uv1.getX() - uv0.getX(), dv1 = uv1.getY() - uv0.getY();
